@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+const (
+	UseCompression = false
+)
+
 // Function called for every file and directory we visit
 // Map m is the existing files that we have observed in the previous iteration.
 // Map newPaths are the new files in this iteration - we use this to determine if there are files in
@@ -57,7 +61,7 @@ func SendItAll(dir string) ([]byte, error) {
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	return buf, nil
 
 }
 
@@ -90,39 +94,53 @@ func SendFiles() {
 }
 
 // Create an in-memory tarball of the listed files.
-func CreateTarGzBuffer(filePaths []string) (bytes.Buffer, error) {
+func CreateTarGzBuffer(filePaths []string) ([]byte, error) {
 
+	// var buf bytes.Buffer
 	var buf bytes.Buffer
 
-	gzipWriter := gzip.NewWriter(&buf)
-	defer gzipWriter.Close()
+	var tarWriter *tar.Writer
 
-	tarWriter := tar.NewWriter(gzipWriter)
+	if UseCompression {
+		gzipWriter := gzip.NewWriter(&buf)
+		defer gzipWriter.Close()
+
+		tarWriter = tar.NewWriter(gzipWriter)
+	} else {
+		tarWriter = tar.NewWriter(&buf)
+	}
+
 	defer tarWriter.Close()
 
 	for _, filePath := range filePaths {
 		err := addFileToTarWriter(filePath, tarWriter)
 		if err != nil {
-			return buf, fmt.Errorf("could not add file '%s', to tarball, got error '%v'", filePath, err)
+			return buf.Bytes(), fmt.Errorf("could not add file '%s', to tarball, got error '%v'", filePath, err)
 		}
 	}
 
-	return buf, nil
+	return buf.Bytes(), nil
 }
 
 func UnpackTarGzBuffer(buf []byte, rootDir string) error {
 	reader := bytes.NewReader(buf)
-	gzipReader, err := gzip.NewReader(reader)
-	if err != nil {
-		return fmt.Errorf("could not create gzip reader, got error '%v'", err.Error())
+	var tarReader *tar.Reader
+
+	if UseCompression {
+		gzipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			return fmt.Errorf("could not create gzip reader, got error '%v'", err.Error())
+		}
+		defer gzipReader.Close()
+		tarReader = tar.NewReader(gzipReader)
+
+	} else {
+		tarReader = tar.NewReader(reader)
 	}
-	defer gzipReader.Close()
 
 	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		return fmt.Errorf("could not create directory '%s', got error '%v'", rootDir, err.Error())
 	}
-
-	tarReader := tar.NewReader(gzipReader)
 
 	for {
 		header, err := tarReader.Next()
@@ -186,6 +204,7 @@ func addFileToTarWriter(filePath string, tarWriter *tar.Writer) error {
 	if err != nil {
 		return fmt.Errorf("could not copy the file '%s' data to the tarball, got error '%v'", filePath, err.Error())
 	}
+	fmt.Printf("Adding tar file %s size %d\n ", filePath, stat.Size())
 
 	return nil
 }

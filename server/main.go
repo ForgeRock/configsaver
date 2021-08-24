@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 
@@ -43,10 +44,11 @@ type server struct {
 // SayHello implements helloworld.GreeterServer
 func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
 	log.Printf("product: %s commit: %s", in.ProductId, in.CommitId)
-	bytes, err := f.SendItAll(".")
+	bytes, err := f.SendItAll("./proto")
 	if err != nil {
-		return &pb.GetConfigReply{Status: 1, ErrorMessage: err.Error()}, nil
+		return &pb.GetConfigReply{Status: 1, ErrorMessage: err.Error()}, err
 	}
+	fmt.Printf("sending %d bytes", len(bytes))
 	return &pb.GetConfigReply{Status: 0, ErrorMessage: "ok", ConfigTarGz: bytes}, nil
 }
 

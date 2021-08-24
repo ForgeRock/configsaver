@@ -33,6 +33,8 @@ func main() {
 		log.Fatalf("could not get configuration: %v", err)
 	}
 	log.Printf("Status = %d Error message: %s", r.Status, r.ErrorMessage)
-	f.UnpackTarGzBuffer(r.GetConfigTarGz(), "/var/tmp/configsaver")
+	if err := f.UnpackTarGzBuffer(r.GetConfigTarGz(), "/tmp/cs"); err != nil {
+		log.Fatalf("could not unpack configuration: %v", err)
+	}
 
 }
