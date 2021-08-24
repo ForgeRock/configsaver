@@ -36,7 +36,7 @@ message GetConfigRequest {
 
 message GetConfigReply {
   string commit_id = 1;
-  bytes config_tar_gz = 2;
+  bytes config_tar = 2;
   int32 status = 3;
   string error_message = 4;
 }
@@ -59,7 +59,7 @@ message UpdateConfigRequest {
   string commit_id = 1;
   string product_id = 2;
   // tar archive of any changed files
-  bytes config_tar_gz = 3;
+  bytes config_tar = 3;
 }
 
 

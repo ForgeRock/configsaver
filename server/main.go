@@ -36,23 +36,43 @@ const (
 	port = ":50051"
 )
 
-// server is used to implement helloworld.GreeterServer.
+// The configuration of the config saver server
+// Eventually this will be read from a config file or command line args.
+type ConfigServerConfig struct {
+	// The top of directory where we serve config from.
+	RootDirectory string
+	// Map of the relative paths to the product configuration.
+	// Example:  am: docker/am/configs/cdk
+	ProductPath map[string]string
+	// TODO: Various git parameters here when we add git support. Default branch, upstream remotes, etc.
+}
+
 type server struct {
 	pb.UnimplementedConfigSaverServer
 }
 
-// SayHello implements helloworld.GreeterServer
+// GetConfig returns the entire config for a given product. Returns to the caller as tar file
 func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
 	log.Printf("product: %s commit: %s", in.ProductId, in.CommitId)
-	bytes, err := f.SendItAll("./proto")
+	bytes, err := f.GetAllConfiguration(config.RootDirectory, config.ProductPath[in.ProductId])
 	if err != nil {
 		return &pb.GetConfigReply{Status: 1, ErrorMessage: err.Error()}, err
 	}
-	fmt.Printf("sending %d bytes", len(bytes))
-	return &pb.GetConfigReply{Status: 0, ErrorMessage: "ok", ConfigTarGz: bytes}, nil
+	fmt.Printf("sending tar file with %d bytes", len(bytes))
+	return &pb.GetConfigReply{Status: 0, ErrorMessage: "ok", ConfigTar: bytes}, nil
 }
 
+var config *ConfigServerConfig
+
 func main() {
+	config = &ConfigServerConfig{
+		RootDirectory: "../forgeops",
+		ProductPath: map[string]string{
+			"am":  "docker/am/config-profiles/cdk",
+			"idm": "docker/idm/config-profiles/cdk",
+		},
+	}
+
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)

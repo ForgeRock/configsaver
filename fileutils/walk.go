@@ -13,6 +13,10 @@ import (
 )
 
 const (
+	// Whether to gzip the tar file or not.
+	// The gzip compressor triggers tar errors if the number of bytes written is too small
+	// TODO: find out why this is the case (extra padding needed?)
+	// For now, we can use gRPC compression if performance is a concern
 	UseCompression = false
 )
 
@@ -41,12 +45,20 @@ func walkDirFunction(path string, d fs.DirEntry, m map[string]time.Time, newPath
 	return nil
 }
 
-func SendItAll(dir string) ([]byte, error) {
+// Get the entire configuration for the product as a tarball of bytes
+func GetAllConfiguration(rootDir, productPath string) ([]byte, error) {
 	var paths []string
 
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	d := filepath.Join(rootDir, productPath)
+
+	err := filepath.WalkDir(d, func(path string, d fs.DirEntry, err error) error {
 		if !d.IsDir() {
-			paths = append(paths, path)
+			rpath, err := filepath.Rel(rootDir, path)
+			if err != nil {
+				return err
+			}
+
+			paths = append(paths, rpath)
 			return nil
 		}
 		return nil
@@ -54,9 +66,8 @@ func SendItAll(dir string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("paths %v\n", paths)
 
-	buf, err := CreateTarGzBuffer(paths)
+	buf, err := CreateTarBuffer(rootDir, paths)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +76,7 @@ func SendItAll(dir string) ([]byte, error) {
 
 }
 
+// TODO: testing the cost of looking for changes.
 func SendFiles() {
 
 	var updateMap = make(map[string]time.Time)
@@ -94,7 +106,7 @@ func SendFiles() {
 }
 
 // Create an in-memory tarball of the listed files.
-func CreateTarGzBuffer(filePaths []string) ([]byte, error) {
+func CreateTarBuffer(rootDir string, filePaths []string) ([]byte, error) {
 
 	// var buf bytes.Buffer
 	var buf bytes.Buffer
@@ -113,7 +125,7 @@ func CreateTarGzBuffer(filePaths []string) ([]byte, error) {
 	defer tarWriter.Close()
 
 	for _, filePath := range filePaths {
-		err := addFileToTarWriter(filePath, tarWriter)
+		err := addFileToTarWriter(rootDir, filePath, tarWriter)
 		if err != nil {
 			return buf.Bytes(), fmt.Errorf("could not add file '%s', to tarball, got error '%v'", filePath, err)
 		}
@@ -122,7 +134,7 @@ func CreateTarGzBuffer(filePaths []string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func UnpackTarGzBuffer(buf []byte, rootDir string) error {
+func UnpackTarBuffer(buf []byte, rootDir string) error {
 	reader := bytes.NewReader(buf)
 	var tarReader *tar.Reader
 
@@ -152,7 +164,7 @@ func UnpackTarGzBuffer(buf []byte, rootDir string) error {
 		}
 
 		path := filepath.Join(rootDir, header.Name)
-		fmt.Printf("got header %s\n", path)
+		// fmt.Printf("got header %s restorePath %s\n", header.Name, path)
 
 		err = os.MkdirAll(filepath.Dir(path), 0755)
 		if err != nil {
@@ -174,9 +186,8 @@ func UnpackTarGzBuffer(buf []byte, rootDir string) error {
 	return nil
 }
 
-// Private methods
-
-func addFileToTarWriter(filePath string, tarWriter *tar.Writer) error {
+func addFileToTarWriter(rootDir, relativePath string, tarWriter *tar.Writer) error {
+	filePath := filepath.Join(rootDir, relativePath)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("could not open file '%s', got error '%s'", filePath, err.Error())
@@ -189,7 +200,7 @@ func addFileToTarWriter(filePath string, tarWriter *tar.Writer) error {
 	}
 
 	header := &tar.Header{
-		Name:    filePath,
+		Name:    relativePath,
 		Size:    stat.Size(),
 		Mode:    int64(stat.Mode()),
 		ModTime: stat.ModTime(),
@@ -204,7 +215,7 @@ func addFileToTarWriter(filePath string, tarWriter *tar.Writer) error {
 	if err != nil {
 		return fmt.Errorf("could not copy the file '%s' data to the tarball, got error '%v'", filePath, err.Error())
 	}
-	fmt.Printf("Adding tar file %s size %d\n ", filePath, stat.Size())
+	fmt.Printf("Adding tar file %s relative path = %s size %d\n ", filePath, relativePath, stat.Size())
 
 	return nil
 }
