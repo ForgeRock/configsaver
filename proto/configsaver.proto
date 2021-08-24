@@ -1,0 +1,70 @@
+// Copyright 2021 ForgeRock AS. All Rights Reserved
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+option go_package = "github.com/ForgeRock/configsaver;proto";
+// option java_multiple_files = true;
+// option java_package = "io.grpc.examples.helloworld";
+// option java_outer_classname = "HelloWorldProto";
+
+package configsaver;
+
+// The greeting service definition.
+service ConfigSaver {
+  rpc GetConfig (GetConfigRequest) returns (GetConfigReply) {}
+  rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigReply) {}
+
+}
+
+// Get a bundle of configuration files in tar.gz format
+message GetConfigRequest {
+  string commit_id = 1;
+  string product_id = 2;
+}
+
+message GetConfigReply {
+  string commit_id = 1;
+  bytes config_tar_gz = 2;
+  int32 status = 3;
+  string error_message = 4;
+}
+
+// Send a single changed file to the server
+// TODO: Do we need this?
+message UpdateFileRequest {
+  string commit_id = 1;
+  string product_id = 2;
+  // The contents of the file
+  bytes contents = 3;
+  // relative path to the file
+  string path = 4;
+}
+
+// Update a batch of files in a tar archive
+// The client can attempt to be "nice" and only send changed files, but
+// the server should be able to deal with duplicate files.
+message UpdateConfigRequest {
+  string commit_id = 1;
+  string product_id = 2;
+  // tar archive of any changed files
+  bytes config_tar_gz = 3;
+}
+
+
+message UpdateConfigReply {
+  string commit_id = 1;
+  int32 status = 2;
+  string message = 3;
+}

@@ -4,8 +4,9 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"time"
+
+	f "github.com/ForgeRock/configsaver/fileutils"
 
 	pb "github.com/ForgeRock/configsaver/proto"
 	"google.golang.org/grpc"
@@ -23,18 +24,15 @@ func main() {
 		log.Fatalf("did not connect: %v", err)
 	}
 	defer conn.Close()
-	c := pb.NewGreeterClient(conn)
+	c := pb.NewConfigSaverClient(conn)
 
-	// Contact the server and print out its response.
-	name := defaultName
-	if len(os.Args) > 1 {
-		name = os.Args[1]
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	r, err := c.SayHello(ctx, &pb.HelloRequest{Name: name})
+	r, err := c.GetConfig(ctx, &pb.GetConfigRequest{ProductId: "am", CommitId: "master"})
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Fatalf("could not get configuration: %v", err)
 	}
-	log.Printf("Greeting: %s", r.GetMessage())
+	log.Printf("Status = %d Error message: %s", r.Status, r.ErrorMessage)
+	f.UnpackTarGzBuffer(r.GetConfigTarGz(), "/var/tmp/configsaver")
+
 }

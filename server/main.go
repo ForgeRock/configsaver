@@ -24,6 +24,8 @@ import (
 	"log"
 	"net"
 
+	f "github.com/ForgeRock/configsaver/fileutils"
+
 	pb "github.com/ForgeRock/configsaver/proto"
 	"google.golang.org/grpc"
 	// pb "proto/proto"
@@ -35,13 +37,17 @@ const (
 
 // server is used to implement helloworld.GreeterServer.
 type server struct {
-	pb.UnimplementedGreeterServer
+	pb.UnimplementedConfigSaverServer
 }
 
 // SayHello implements helloworld.GreeterServer
-func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
-	log.Printf("Received: %v", in.GetName())
-	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
+func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
+	log.Printf("product: %s commit: %s", in.ProductId, in.CommitId)
+	bytes, err := f.SendItAll(".")
+	if err != nil {
+		return &pb.GetConfigReply{Status: 1, ErrorMessage: err.Error()}, nil
+	}
+	return &pb.GetConfigReply{Status: 0, ErrorMessage: "ok", ConfigTarGz: bytes}, nil
 }
 
 func main() {
@@ -50,7 +56,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterGreeterServer(s, &server{})
+	pb.RegisterConfigSaverServer(s, &server{})
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
