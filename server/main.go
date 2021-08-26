@@ -25,7 +25,8 @@ import (
 	"log"
 	"net"
 
-	f "github.com/ForgeRock/configsaver/fileutils"
+	f "github.com/ForgeRock/configsaver/internal/fileutils"
+	git "github.com/ForgeRock/configsaver/internal/git"
 
 	pb "github.com/ForgeRock/configsaver/proto"
 	"google.golang.org/grpc"
@@ -66,12 +67,22 @@ var config *ConfigServerConfig
 
 func main() {
 	config = &ConfigServerConfig{
-		RootDirectory: "../forgeops",
+		RootDirectory: "tmp/forgeops",
 		ProductPath: map[string]string{
 			"am":  "docker/am/config-profiles/cdk",
 			"idm": "docker/idm/config-profiles/cdk",
 		},
 	}
+
+	git, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", config.RootDirectory, "master")
+
+	if err != nil {
+		log.Fatalf("failed to open git repo: %v", err)
+	}
+
+	_, _ = git.GitStatus()
+
+	panic("quite")
 
 	lis, err := net.Listen("tcp", port)
 	if err != nil {

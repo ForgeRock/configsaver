@@ -6,15 +6,14 @@ import (
 	"log"
 	"time"
 
-	f "github.com/ForgeRock/configsaver/fileutils"
+	f "github.com/ForgeRock/configsaver/internal/fileutils"
 
 	pb "github.com/ForgeRock/configsaver/proto"
 	"google.golang.org/grpc"
 )
 
 const (
-	address     = "localhost:50051"
-	defaultName = "worl FOOOO"
+	address = "localhost:50051"
 )
 
 func main() {
