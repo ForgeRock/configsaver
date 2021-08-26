@@ -50,33 +50,83 @@ func (gitRepo *GitRepo) GitStatus() (string, error) {
 	}
 
 	count, _ := list.EntryCount()
-	s := fmt.Sprintf("%v  count=%d", list, count)
-	log.Println(s)
+	log.Printf("Processing %d git changes\n", count)
 
 	for i := 0; i < count; i++ {
 		entry, _ := list.ByIndex(i)
-		fmt.Printf("%+v  status=0x%x\n", entry, entry.Status)
+		fmt.Printf("%+v\nstatus=0x%x\n\n", entry, entry.Status)
 		// file is newly added
 		if entry.Status == git.StatusWtNew {
 			s := entry.IndexToWorkdir.NewFile.Path
-			fmt.Printf("Its new %+v  newfile=%s\n", entry.IndexToWorkdir, s)
+			gitRepo.addToIndex(s)
 
 		}
 		// file is modified
 		if entry.Status == git.StatusWtModified {
 			s := entry.IndexToWorkdir.NewFile.Path
-			fmt.Printf("Its modified %+v  newfile=%s\n", entry.IndexToWorkdir, s)
+			gitRepo.addToIndex(s)
+
 		}
 
-		if entry.Status == git.StatusIndexNew {
-			fmt.Println("new")
-		}
+		// if entry.Status == git.StatusIndexNew {
+		// 	s := entry.IndexToWorkdir.NewFile.Path
+		// 	fmt.Printf("new file %s\n", s)
+		// 	gitRepo.addToIndex(s)
+		// }
 
 	}
 
-	gitRepo.repo.DiffIndexToWorkdir(nil, &git.DiffOptions{})
+	//gitRepo.repo.DiffIndexToWorkdir(nil, &git.DiffOptions{})
 
-	return s, nil
+	gitRepo.Commit("automated commit")
+
+	return "", nil
+}
+
+// See https://github.com/libgit2/libgit2/blob/091165c53b2bcd5d41fb71d43ed5a23a3d96bf5d/tests/object/commit/commitstagedfile.c#L21-L134
+
+func (gitRepo *GitRepo) addToIndex(path string) error {
+	log.Printf("Adding %s to index\n", path)
+	index, err := gitRepo.repo.Index()
+	checkErr(err)
+	err = index.AddByPath(path)
+	checkErr(err)
+	err = index.Write()
+	checkErr(err)
+	return nil
+}
+
+// Commit index to the repo
+func (gitRepo *GitRepo) Commit(message string) error {
+
+	sig := &git.Signature{
+		Name:  "config-saver",
+		Email: "config-saver@forgerock.com",
+	}
+	index, err := gitRepo.repo.Index()
+	checkErr(err)
+	treeId, err := index.WriteTree()
+	checkErr(err)
+	tree, err := gitRepo.repo.LookupTree(treeId)
+	checkErr(err)
+	err = index.Write()
+	checkErr(err)
+	currentBranch, err := gitRepo.repo.Head()
+	checkErr(err)
+
+	currentTip, err := gitRepo.repo.LookupCommit(currentBranch.Target())
+	checkErr(err)
+
+	treeId, err = gitRepo.repo.CreateCommit("HEAD", sig, sig, message, tree, currentTip)
+	checkErr(err)
+	fmt.Println(treeId)
+	return err
+}
+
+func checkErr(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 // From https://gist.github.com/danielfbm/ba4ae91efa96bb4771351bdbd2c8b06f
