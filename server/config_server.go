@@ -46,6 +46,7 @@ type ConfigServerConfig struct {
 	// Example:  am: docker/am/configs/cdk
 	ProductPath map[string]string
 	// TODO: Various git parameters here when we add git support. Default branch, upstream remotes, etc.
+	*f.FileUtil
 }
 
 type server struct {
@@ -67,7 +68,7 @@ func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.Ge
 func (s *server) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (*pb.UpdateConfigReply, error) {
 	log.Printf("UpdateConfig product: %s commit: %s", in.ProductId, in.CommitId)
 
-	err := f.UnpackTarBuffer(in.ConfigTar, config.ProductPath[in.ProductId])
+	err := config.FileUtil.UnpackTarBuffer(in.ConfigTar)
 
 	if err != nil {
 		log.Printf("could not unpack tar buffer: %v\n", err)
@@ -79,14 +80,21 @@ func (s *server) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (
 var config *ConfigServerConfig
 
 func main() {
+
+	rootDir := "tmp"
+
+	futil := f.NewFileUtil(rootDir)
+
 	config = &ConfigServerConfig{
 		RootDirectory: "tmp/forgeops",
 		ProductPath: map[string]string{
 			"am":  "docker/am/config-profiles/cdk",
 			"idm": "docker/idm/config-profiles/cdk",
 		},
+		FileUtil: futil,
 	}
 
+	log.Println("Getting the git repo")
 	_, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", config.RootDirectory, "master")
 
 	if err != nil {

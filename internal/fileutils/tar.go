@@ -145,9 +145,9 @@ func CreateTarBuffer(rootDir string, filePaths []string) ([]byte, error) {
 }
 
 // Given a tar file in a memory buf, unpack it to the specified rootDir directory.
-func UnpackTarBuffer(buf []byte, rootDir string) error {
+func (f *FileUtil)UnpackTarBuffer(buf []byte) error {
 
-	log.Printf("Unpacking tar file to %s\n", rootDir)
+	log.Printf("Unpacking tar file to %s\n", f.RootDir)
 	reader := bytes.NewReader(buf)
 	var tarReader *tar.Reader
 
@@ -163,8 +163,8 @@ func UnpackTarBuffer(buf []byte, rootDir string) error {
 		tarReader = tar.NewReader(reader)
 	}
 
-	if err := os.MkdirAll(rootDir, 0755); err != nil {
-		return fmt.Errorf("could not create directory '%s', got error '%v'", rootDir, err.Error())
+	if err := os.MkdirAll(f.RootDir, 0755); err != nil {
+		return fmt.Errorf("could not create directory '%s', got error '%v'", f.RootDir, err.Error())
 	}
 
 	for {
@@ -176,7 +176,7 @@ func UnpackTarBuffer(buf []byte, rootDir string) error {
 			return fmt.Errorf("could not read next tar header, got error '%v'", err.Error())
 		}
 
-		path := filepath.Join(rootDir, header.Name)
+		path := filepath.Join(f.RootDir, header.Name)
 		fmt.Println(path)
 
 		err = os.MkdirAll(filepath.Dir(path), 0755)

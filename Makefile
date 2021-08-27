@@ -14,7 +14,10 @@ compile: configsaver.pb.go
 
 
 serve:
-	go run server/server.go
+	go run server/config_server.go
 
 client:
-	go run client/main.go
+	go run client/config_client.go /tmp/cs
+
+client_sync:
+	go run client/config_client.go /tmp/cs 5
