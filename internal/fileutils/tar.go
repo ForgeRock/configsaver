@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -20,6 +21,25 @@ const (
 	// For now, we can use gRPC compression if performance is a concern
 	UseCompression = false
 )
+
+type FileUtil struct {
+	RootDir string
+	// status of files from the last scan
+	fileStatus map[string]time.Time
+	// Which files are no longer in the filesystem
+	DeletedFiles []string
+	// Which files were modified since the last scan
+	ModifiedFiles map[string]time.Time
+	// files that are new since the last scan
+	NewFiles map[string]time.Time
+}
+
+func NewFileUtil(rootDir string) *FileUtil {
+	return &FileUtil{
+		RootDir:    rootDir,
+		fileStatus: make(map[string]time.Time),
+	}
+}
 
 // Get the entire configuration for the product as a tarball of bytes
 // rootDir is the top of the directory (example, tmp/forgeops).
@@ -49,38 +69,53 @@ func GetAllConfiguration(rootDir, productPath string) ([]byte, error) {
 
 }
 
-// TODO: testing the cost of looking for changes.
-func SendFiles() {
+// Walks the directory tree, creating a list of files added, deleted and modified
+func (f *FileUtil) ScanFiles() error {
 
-	var updateMap = make(map[string]time.Time)
+	f.DeletedFiles = make([]string, 0)
+	f.ModifiedFiles = make(map[string]time.Time)
+	f.NewFiles = make(map[string]time.Time)
 
-	for {
+	currentPaths := make(map[string]time.Time)
 
-		newPaths := make(map[string]bool)
+	err := filepath.WalkDir(f.RootDir, func(path string, d fs.DirEntry, err error) error {
+		_ = f.walkDirFunction(path, d, currentPaths)
+		return nil
+	})
 
-		err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-			_ = walkDirFunction(path, d, updateMap, newPaths)
-			return nil
-		})
-
-		// look for keys in fmap that are NOT in updateMap - they must be deleted files.
-		for k, _ := range updateMap {
-			if _, ok := newPaths[k]; !ok {
-				fmt.Printf("%s deleted\n", k)
-				delete(updateMap, k)
-			}
+	// look for files no longer in the filesystem
+	for k, _ := range f.fileStatus {
+		if _, ok := currentPaths[k]; !ok {
+			fmt.Printf("%s deleted\n", k)
+			// remove from the map and add to the list of deleted files
+			delete(f.fileStatus, k)
+			f.DeletedFiles = append(f.DeletedFiles, k)
 		}
-
-		if err != nil {
-			panic(err)
-		}
-		time.Sleep(time.Second * 5)
 	}
+
+	if err != nil {
+		panic(err)
+	}
+
+	return nil
+}
+
+// TarUpModifiedFiles creates a tarball of the new and modified files since the last scan
+func (f *FileUtil) TarUpModifiedFiles() ([]byte, error) {
+	allFiles := make([]string, 0)
+	for k, _ := range f.ModifiedFiles {
+		allFiles = append(allFiles, k)
+	}
+	for k, _ := range f.NewFiles {
+		allFiles = append(allFiles, k)
+	}
+	return CreateTarBuffer(f.RootDir, allFiles)
 }
 
 // Create an in-memory tarball of the listed files.
 // Rootdir is the top of the config directory  (example, tmp/forgeops/docker/am/product-configs/cdk).
 // filepaths are the list of files to include in the tarball
+// The root dir prefix will be stripped from the paths in the tarball
 func CreateTarBuffer(rootDir string, filePaths []string) ([]byte, error) {
 
 	// var buf bytes.Buffer
@@ -111,6 +146,8 @@ func CreateTarBuffer(rootDir string, filePaths []string) ([]byte, error) {
 
 // Given a tar file in a memory buf, unpack it to the specified rootDir directory.
 func UnpackTarBuffer(buf []byte, rootDir string) error {
+
+	log.Printf("Unpacking tar file to %s\n", rootDir)
 	reader := bytes.NewReader(buf)
 	var tarReader *tar.Reader
 
@@ -140,7 +177,7 @@ func UnpackTarBuffer(buf []byte, rootDir string) error {
 		}
 
 		path := filepath.Join(rootDir, header.Name)
-		// fmt.Printf("got header %s restorePath %s\n", header.Name, path)
+		fmt.Println(path)
 
 		err = os.MkdirAll(filepath.Dir(path), 0755)
 		if err != nil {
@@ -178,8 +215,6 @@ func addFileToTarWriter(rootDir, filePath string, tarWriter *tar.Writer) error {
 
 	tarPath := filePath[len(rootDir):]
 
-	log.Printf("Adding %s to tar as %s\n", filePath, tarPath)
-
 	header := &tar.Header{
 		Name:    tarPath,
 		Size:    stat.Size(),
@@ -202,25 +237,29 @@ func addFileToTarWriter(rootDir, filePath string, tarWriter *tar.Writer) error {
 }
 
 // Function called for every file and directory we visit
-// Map m is the existing files that we have observed in the previous iteration.
 // Map newPaths are the new files in this iteration - we use this to determine if there are files in
 // map m that are not in the current iteration. These are files that have been deleted from the filesystem
-
-func walkDirFunction(path string, d fs.DirEntry, m map[string]time.Time, newPaths map[string]bool) error {
-	if !d.IsDir() {
+// Any new paths found are also added to the map m.
+func (f *FileUtil) walkDirFunction(path string, d fs.DirEntry, recentPass map[string]time.Time) error {
+	if !d.IsDir() && !strings.Contains(d.Name(), ".git") {
 		info, _ := d.Info()
 		t := info.ModTime()
+		// fmt.Printf("file: %s %v\n", path, t)
 		// Look up value in the main current map
-		if val, ok := m[path]; ok {
+		if val, ok := f.fileStatus[path]; ok {
+			// file exists, but the mod time has changed.
 			if t != val {
 				fmt.Printf("%s changed time %v\n", path, t)
-				m[path] = t
+				f.fileStatus[path] = t
+				f.ModifiedFiles[path] = t
 			}
-		} else {
-			fmt.Printf("adding %s to watch\n", path)
+		} else { // file is not in currentFileStatus map
+			fmt.Printf("adding %s\n", path)
+			f.fileStatus[path] = t
+			f.NewFiles[path] = t
 		}
-		m[path] = t
-		newPaths[path] = true
+		// record for next pass
+		recentPass[path] = t
 	}
 
 	return nil

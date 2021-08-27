@@ -30,6 +30,9 @@ func OpenGitRepo(remoteUrl, localPath, branch string) (*GitRepo, error) {
 		}
 	}
 
+	// This will refresh the working tree with the current branch
+	// This is probably what we want most of the time. Files deleted in the working directory
+	// get restored
 	if err = checkoutBranch(repo, branch); err != nil {
 		log.Fatalf("Failed to checkout branch %s: %v", branch, err)
 	}
@@ -40,13 +43,16 @@ func OpenGitRepo(remoteUrl, localPath, branch string) (*GitRepo, error) {
 // https://blog.gopheracademy.com/advent-2014/git2go-tutorial/
 
 // get the git status of the repo
-func (gitRepo *GitRepo) GitStatus() (string, error) {
-	list, err := gitRepo.repo.StatusList(&git.StatusOptions{
-		Flags: git.StatusOptIncludeUntracked | git.StatusOptIncludeIgnored,
-	})
+func (gitRepo *GitRepo) GitStatusAndCommit() error {
+
+	opts := &git.StatusOptions{
+		Flags: (git.StatusOptIncludeUntracked),
+	}
+	list, err := gitRepo.repo.StatusList(opts)
+
 	if err != nil {
 		log.Printf("Failed to get status: %v", err)
-		return "", err
+		return err
 	}
 
 	count, _ := list.EntryCount()
@@ -67,24 +73,22 @@ func (gitRepo *GitRepo) GitStatus() (string, error) {
 			gitRepo.addToIndex(s)
 
 		}
-
-		// if entry.Status == git.StatusIndexNew {
-		// 	s := entry.IndexToWorkdir.NewFile.Path
-		// 	fmt.Printf("new file %s\n", s)
-		// 	gitRepo.addToIndex(s)
-		// }
-
+		// fie us deleted
+		if entry.Status == git.StatusWtDeleted {
+			s := entry.IndexToWorkdir.NewFile.Path
+			fmt.Printf("File removed %s\n", s)
+			gitRepo.removeFromIndex(s)
+		}
+	}
+	if count > 0 {
+		gitRepo.Commit("automated commit")
 	}
 
-	//gitRepo.repo.DiffIndexToWorkdir(nil, &git.DiffOptions{})
-
-	gitRepo.Commit("automated commit")
-
-	return "", nil
+	return nil
 }
 
 // See https://github.com/libgit2/libgit2/blob/091165c53b2bcd5d41fb71d43ed5a23a3d96bf5d/tests/object/commit/commitstagedfile.c#L21-L134
-
+// add a file to the index. Equivalent to git add file
 func (gitRepo *GitRepo) addToIndex(path string) error {
 	log.Printf("Adding %s to index\n", path)
 	index, err := gitRepo.repo.Index()
@@ -96,7 +100,19 @@ func (gitRepo *GitRepo) addToIndex(path string) error {
 	return nil
 }
 
-// Commit index to the repo
+// remove a file from the index. Equivalent to git rm file
+func (gitRepo *GitRepo) removeFromIndex(path string) error {
+	log.Printf("removing %s from index\n", path)
+	index, err := gitRepo.repo.Index()
+	checkErr(err)
+	err = index.RemoveByPath(path)
+	checkErr(err)
+	err = index.Write()
+	checkErr(err)
+	return nil
+}
+
+// Commit current index to the repo
 func (gitRepo *GitRepo) Commit(message string) error {
 
 	sig := &git.Signature{
@@ -117,9 +133,8 @@ func (gitRepo *GitRepo) Commit(message string) error {
 	currentTip, err := gitRepo.repo.LookupCommit(currentBranch.Target())
 	checkErr(err)
 
-	treeId, err = gitRepo.repo.CreateCommit("HEAD", sig, sig, message, tree, currentTip)
+	_, err = gitRepo.repo.CreateCommit("HEAD", sig, sig, message, tree, currentTip)
 	checkErr(err)
-	fmt.Println(treeId)
 	return err
 }
 

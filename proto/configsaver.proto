@@ -21,22 +21,30 @@ option go_package = "github.com/ForgeRock/configsaver;proto";
 
 package configsaver;
 
-// The greeting service definition.
+// The ConfigSaver service definition.
 service ConfigSaver {
+  // Get a comfiguration from the server.
   rpc GetConfig (GetConfigRequest) returns (GetConfigReply) {}
+  // Save an updated configuration to the server.
+  // The server is responsible for determining whether the configuration is valid, has changed
+  // and how to persist it.
   rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigReply) {}
 
 }
 
-// Get a bundle of configuration files in tar.gz format
+// Get a bundle of configuration files in tar format
 message GetConfigRequest {
+  // commit or branch.
   string commit_id = 1;
+  // product id is am,idm,ig, etc.
   string product_id = 2;
 }
 
 message GetConfigReply {
   string commit_id = 1;
+  // the tar file of files as a byte array
   bytes config_tar = 2;
+  // 0 for success, 1 for failure
   int32 status = 3;
   string error_message = 4;
 }
@@ -58,13 +66,16 @@ message UpdateFileRequest {
 message UpdateConfigRequest {
   string commit_id = 1;
   string product_id = 2;
-  // tar archive of any changed files
+  // tar archive of any new or changed files
   bytes config_tar = 3;
+  // TOOD: Do we need this?
+  // List of files that were deleted on the client config
+  repeated string removed_files = 4;
 }
 
 
 message UpdateConfigReply {
   string commit_id = 1;
   int32 status = 2;
-  string message = 3;
+  string error_message = 3;
 }

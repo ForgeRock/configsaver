@@ -54,13 +54,26 @@ type server struct {
 
 // GetConfig returns the entire config for a given product. Returns to the caller as tar file
 func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
-	log.Printf("product: %s commit: %s", in.ProductId, in.CommitId)
+	log.Printf("GetConfig product: %s commit: %s", in.ProductId, in.CommitId)
 	bytes, err := f.GetAllConfiguration(config.RootDirectory, config.ProductPath[in.ProductId])
 	if err != nil {
 		return &pb.GetConfigReply{Status: 1, ErrorMessage: err.Error()}, err
 	}
 	fmt.Printf("sending tar file with %d bytes", len(bytes))
 	return &pb.GetConfigReply{Status: 0, ErrorMessage: "ok", ConfigTar: bytes}, nil
+}
+
+// UpdateConfig is called by the client to pass along config updates to be saved.
+func (s *server) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (*pb.UpdateConfigReply, error) {
+	log.Printf("UpdateConfig product: %s commit: %s", in.ProductId, in.CommitId)
+
+	err := f.UnpackTarBuffer(in.ConfigTar, config.ProductPath[in.ProductId])
+
+	if err != nil {
+		log.Printf("could not unpack tar buffer: %v\n", err)
+		return &pb.UpdateConfigReply{Status: 1, ErrorMessage: err.Error()}, err
+	}
+	return &pb.UpdateConfigReply{Status: 0, ErrorMessage: "ok"}, nil
 }
 
 var config *ConfigServerConfig
@@ -74,15 +87,15 @@ func main() {
 		},
 	}
 
-	git, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", config.RootDirectory, "master")
+	_, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", config.RootDirectory, "master")
 
 	if err != nil {
 		log.Fatalf("failed to open git repo: %v", err)
 	}
 
-	_, _ = git.GitStatus()
+	// _ = git.GitStatusAndCommit()
 
-	panic("quite")
+	// panic("quit")
 
 	lis, err := net.Listen("tcp", port)
 	if err != nil {

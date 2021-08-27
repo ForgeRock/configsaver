@@ -18,7 +18,11 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConfigSaverClient interface {
+	// Get a comfiguration from the server.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigReply, error)
+	// Save an updated configuration to the server.
+	// The server is responsible for determining whether the configuration is valid, has changed
+	// and how to persist it.
 	UpdateConfig(ctx context.Context, in *UpdateConfigRequest, opts ...grpc.CallOption) (*UpdateConfigReply, error)
 }
 
@@ -52,7 +56,11 @@ func (c *configSaverClient) UpdateConfig(ctx context.Context, in *UpdateConfigRe
 // All implementations must embed UnimplementedConfigSaverServer
 // for forward compatibility
 type ConfigSaverServer interface {
+	// Get a comfiguration from the server.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigReply, error)
+	// Save an updated configuration to the server.
+	// The server is responsible for determining whether the configuration is valid, has changed
+	// and how to persist it.
 	UpdateConfig(context.Context, *UpdateConfigRequest) (*UpdateConfigReply, error)
 	mustEmbedUnimplementedConfigSaverServer()
 }
