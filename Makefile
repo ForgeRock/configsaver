@@ -1,4 +1,4 @@
-.PHONY: compile assets client
+.PHONY: compile assets client docker
 
 PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
 GO_BINDATA := $(GOPATH)/bin/go-bindata
@@ -21,3 +21,9 @@ client:
 
 client_sync:
 	go run client/config_client.go /tmp/cs 5
+
+docker:
+	docker build -t gcr.io/forgeops-public/config_client:dev  -f client/Dockerfile  .
+	docker build -t gcr.io/forgeops-public/config_server:dev  -f server/Dockerfile .
+	docker push gcr.io/forgeops-public/config_client:dev
+	docker push gcr.io/forgeops-public/config_server:dev
