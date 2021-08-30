@@ -16,7 +16,7 @@
  *
  */
 
-// Package main implements a server for Greeter service.
+// Package implements the config saver server
 package main
 
 import (
@@ -30,15 +30,13 @@ import (
 
 	pb "github.com/ForgeRock/configsaver/proto"
 	"google.golang.org/grpc"
-	// pb "proto/proto"
 )
 
 const (
 	port = ":50051"
 )
 
-// The configuration of the config saver server
-// Eventually this will be read from a config file or command line args.
+// config saver server context + config
 type ConfigServer struct {
 	// The top of directory where we serve config from.
 	RootDirectory string
@@ -47,18 +45,47 @@ type ConfigServer struct {
 	ProductPath map[string]string
 	*f.FileUtil
 	*git.GitRepo
-	pb.UnimplementedConfigSaverServer
+	pb.UnimplementedConfigSaverServer // for gRPC
 }
 
-// type server struct {
-// 	pb.UnimplementedConfigSaverServer
-// }
+var config *ConfigServer
+
+func main() {
+	rootDir := "tmp/forgeops" // todo: make this configurable
+
+	// This will look for GIT_REPO and GIT_SSH_PATH environment variables.
+	gitRepo, err := git.OpenGitRepo(rootDir, "master")
+	if err != nil {
+		log.Fatalf("failed to open git repo: %v", err)
+	}
+
+	config = &ConfigServer{
+		RootDirectory: rootDir,
+		ProductPath: map[string]string{
+			"am":  "docker/am/config-profiles/cdk",
+			"idm": "docker/idm/config-profiles/cdk",
+		},
+		FileUtil: f.NewFileUtil(rootDir),
+		GitRepo:  gitRepo,
+	}
+
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterConfigSaverServer(s, config)
+	log.Printf("server listening at %v", lis.Addr())
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
+}
 
 // GetConfig returns the entire config for a given product. Returns to the caller as tar file
 func (s *ConfigServer) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
 
 	log.Printf("GetConfig product: %s commit: %s", in.ProductId, in.CommitId)
-	bytes, err := f.GetAllConfiguration(config.RootDirectory, config.ProductPath[in.ProductId])
+	bytes, err := s.FileUtil.GetAllConfiguration(config.ProductPath[in.ProductId])
 	if err != nil {
 		return &pb.GetConfigReply{Status: 1, ErrorMessage: err.Error()}, err
 	}
@@ -71,7 +98,7 @@ func (s *ConfigServer) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequ
 	log.Printf("UpdateConfig product: %s commit: %s", in.ProductId, in.CommitId)
 
 	// Unpack the tar file containing the changes
-	err := config.FileUtil.UnpackTarBuffer(in.ConfigTar, config.ProductPath[in.ProductId])
+	err := s.FileUtil.UnpackTarBuffer(in.ConfigTar, config.ProductPath[in.ProductId])
 	if err != nil {
 		log.Printf("could not unpack tar buffer: %v\n", err)
 		return &pb.UpdateConfigReply{Status: 1, ErrorMessage: err.Error()}, err
@@ -90,41 +117,4 @@ func (s *ConfigServer) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequ
 	}
 
 	return &pb.UpdateConfigReply{Status: 0, ErrorMessage: "ok"}, nil
-}
-
-var config *ConfigServer
-
-func main() {
-
-	rootDir := "tmp/forgeops"
-
-	futil := f.NewFileUtil(rootDir)
-
-	log.Println("Getting the git repo")
-	gitRepo, err := git.OpenGitRepo(rootDir, "autosave")
-
-	config = &ConfigServer{
-		RootDirectory: rootDir,
-		ProductPath: map[string]string{
-			"am":  "docker/am/config-profiles/cdk",
-			"idm": "docker/idm/config-profiles/cdk",
-		},
-		FileUtil: futil,
-		GitRepo:  gitRepo,
-	}
-
-	if err != nil {
-		log.Fatalf("failed to open git repo: %v", err)
-	}
-
-	lis, err := net.Listen("tcp", port)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-	s := grpc.NewServer()
-	pb.RegisterConfigSaverServer(s, config)
-	log.Printf("server listening at %v", lis.Addr())
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
 }

@@ -1,3 +1,21 @@
+/*
+ *
+ * Copyright  2021 ForgeRock AS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
 package fileutils
 
 import (
@@ -24,7 +42,7 @@ const (
 
 type FileUtil struct {
 	RootDir string
-	// status of files from the last scan
+	// map of files from the last scan with the modification time
 	fileStatus map[string]time.Time
 	// Which files are no longer in the filesystem
 	DeletedFiles []string
@@ -44,9 +62,9 @@ func NewFileUtil(rootDir string) *FileUtil {
 // Get the entire configuration for the product as a tarball of bytes
 // rootDir is the top of the directory (example, tmp/forgeops).
 // productPath is the relative path under that root where the configuration files are (example, docker/am/product-configs/cdk)
-func GetAllConfiguration(rootDir, productPath string) ([]byte, error) {
+func (f *FileUtil) GetAllConfiguration(productPath string) ([]byte, error) {
 	var paths []string
-	dir := filepath.Join(rootDir, productPath)
+	dir := filepath.Join(f.RootDir, productPath)
 	// recursively walk the directory
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if !d.IsDir() {
@@ -64,9 +82,7 @@ func GetAllConfiguration(rootDir, productPath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return buf, nil
-
 }
 
 // Walks the directory tree, creating a list of files added, deleted and modified

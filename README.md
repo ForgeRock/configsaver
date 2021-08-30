@@ -35,3 +35,8 @@ updates. The intent of a "dumb client / smart server" design is to allow for fut
    the paths to the product configurations under the repo are hard coded. This should be configurable.
 * The server could perform some configuration validation. For example, ensuring json is well formed.
 * The server could perform replacement of hard coded values with commons expressions.
+
+## Notes
+
+* gRPC limits payload size to 4MB. The tar files are much smaller than this limit.
+   The tar bytes can be compressed if space saving is required in the future.

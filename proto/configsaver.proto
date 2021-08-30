@@ -23,7 +23,7 @@ package configsaver;
 
 // The ConfigSaver service definition.
 service ConfigSaver {
-  // Get a comfiguration from the server.
+  // Get a configuration from the server.
   rpc GetConfig (GetConfigRequest) returns (GetConfigReply) {}
   // Save an updated configuration to the server.
   // The server is responsible for determining whether the configuration is valid, has changed
@@ -49,26 +49,14 @@ message GetConfigReply {
   string error_message = 4;
 }
 
-// Send a single changed file to the server
-// TODO: Do we need this?
-message UpdateFileRequest {
-  string commit_id = 1;
-  string product_id = 2;
-  // The contents of the file
-  bytes contents = 3;
-  // relative path to the file
-  string path = 4;
-}
-
 // Update a batch of files in a tar archive
-// The client can attempt to be "nice" and only send changed files, but
-// the server should be able to deal with duplicate files.
+// The client should attempt to be "nice" and only send changed files, but
+// the server should be able to deal with unchanged files.
 message UpdateConfigRequest {
   string commit_id = 1;
   string product_id = 2;
   // tar archive of any new or changed files
   bytes config_tar = 3;
-  // TOOD: Do we need this?
   // List of files that were deleted on the client config
   repeated string Deleted_files = 4;
 }
