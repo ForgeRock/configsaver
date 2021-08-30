@@ -39,22 +39,25 @@ const (
 
 // The configuration of the config saver server
 // Eventually this will be read from a config file or command line args.
-type ConfigServerConfig struct {
+type ConfigServer struct {
 	// The top of directory where we serve config from.
 	RootDirectory string
 	// Map of the relative paths to the product configuration.
 	// Example:  am: docker/am/configs/cdk
 	ProductPath map[string]string
-	// TODO: Various git parameters here when we add git support. Default branch, upstream remotes, etc.
 	*f.FileUtil
-}
-
-type server struct {
+	*git.GitRepo
 	pb.UnimplementedConfigSaverServer
 }
 
+// type server struct {
+// 	pb.UnimplementedConfigSaverServer
+// }
+
 // GetConfig returns the entire config for a given product. Returns to the caller as tar file
-func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
+func (s *ConfigServer) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
+	//func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
+
 	log.Printf("GetConfig product: %s commit: %s", in.ProductId, in.CommitId)
 	bytes, err := f.GetAllConfiguration(config.RootDirectory, config.ProductPath[in.ProductId])
 	if err != nil {
@@ -65,7 +68,7 @@ func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.Ge
 }
 
 // UpdateConfig is called by the client to pass along config updates to be saved.
-func (s *server) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (*pb.UpdateConfigReply, error) {
+func (s *ConfigServer) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (*pb.UpdateConfigReply, error) {
 	log.Printf("UpdateConfig product: %s commit: %s", in.ProductId, in.CommitId)
 
 	// Unpack the tar file containing the changes
@@ -85,7 +88,7 @@ func (s *server) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (
 	return &pb.UpdateConfigReply{Status: 0, ErrorMessage: "ok"}, nil
 }
 
-var config *ConfigServerConfig
+var config *ConfigServer
 
 func main() {
 
@@ -93,17 +96,18 @@ func main() {
 
 	futil := f.NewFileUtil(rootDir)
 
-	config = &ConfigServerConfig{
+	log.Println("Getting the git repo")
+	gitRepo, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", rootDir, "master")
+
+	config = &ConfigServer{
 		RootDirectory: rootDir,
 		ProductPath: map[string]string{
 			"am":  "docker/am/config-profiles/cdk",
 			"idm": "docker/idm/config-profiles/cdk",
 		},
 		FileUtil: futil,
+		GitRepo:  gitRepo,
 	}
-
-	log.Println("Getting the git repo")
-	_, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", config.RootDirectory, "master")
 
 	if err != nil {
 		log.Fatalf("failed to open git repo: %v", err)
@@ -114,7 +118,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterConfigSaverServer(s, &server{})
+	pb.RegisterConfigSaverServer(s, config)
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
