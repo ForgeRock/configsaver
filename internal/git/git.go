@@ -4,27 +4,52 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
-	git "github.com/libgit2/git2go/v31"
+	g "github.com/libgit2/git2go/v31"
+)
+
+const (
+	defaultGitRepo = "https://stash.forgerock.org/scm/cloud/forgeops.git"
 )
 
 type GitRepo struct {
-	repo      *git.Repository
+	repo      *g.Repository
 	LocalPath string
 	RemoteUrl string
 }
 
 // OpenGitRepo opens a git repository at localPath and switches to the branch. If the local repo
 // does not exist the repo will be cloned from the remoteUrl.
-func OpenGitRepo(remoteUrl, localPath, branch string) (*GitRepo, error) {
+func OpenGitRepo(localPath, branch string) (*GitRepo, error) {
 
-	var repo *git.Repository
+	var repo *g.Repository
 	var err error
 
-	repo, err = git.OpenRepository(localPath)
+	remoteUrl := os.Getenv("GIT_REPO")
+	if remoteUrl == "" {
+		remoteUrl = defaultGitRepo
+		log.Printf("GIT_REPO env var not provided. defaulting to %s\n", remoteUrl)
+	}
+
+	repo, err = g.OpenRepository(localPath)
 	if err != nil {
-		log.Printf("%s not found, attempting to clone %s  (err = %v)", localPath, remoteUrl, err)
-		repo, err = git.Clone(remoteUrl, localPath, &git.CloneOptions{})
+		log.Printf("%s not found, attempting to clone %s", localPath, remoteUrl)
+		cloneOptions := &g.CloneOptions{}
+		sshPath := os.Getenv("GIT_SSH_PATH")
+		if sshPath != "" {
+			fmt.Printf("Configuring ssh credentials\n")
+			cloneOptions = &g.CloneOptions{
+				FetchOptions: &g.FetchOptions{
+					RemoteCallbacks: g.RemoteCallbacks{
+						CredentialsCallback:      credentialsCallback,
+						CertificateCheckCallback: certificateCheckCallback,
+					},
+				},
+			}
+		}
+		repo, err = g.Clone(remoteUrl, localPath, cloneOptions)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -39,14 +64,28 @@ func OpenGitRepo(remoteUrl, localPath, branch string) (*GitRepo, error) {
 	return &GitRepo{repo, localPath, remoteUrl}, nil
 }
 
+func credentialsCallback(urlstring, username string, allowedTypes g.CredType) (*g.Cred, error) {
+	sshPath := os.Getenv("GIT_SSH_PATH")
+	log.Printf("ssh credential callback path: %s", sshPath)
+	cred, err := g.NewCredSshKey("git", filepath.Join(sshPath, "id_rsa.pub"), filepath.Join(sshPath, "id_rsa"), "")
+	log.Printf("Credentials %v err %v", cred, err)
+	return cred, err
+}
+
+// needed just for testing
+func certificateCheckCallback(cert *g.Certificate, valid bool, hostname string) g.ErrorCode {
+	log.Printf("Cert callback")
+	return 0
+}
+
 // https://stackoverflow.com/questions/31496175/git2go-simulate-git-checkout-and-an-immediate-git-push?rq=1
 // https://blog.gopheracademy.com/advent-2014/git2go-tutorial/
 
-// get the git status of the repo
+// get the git status of the repo, commit any changed files.
 func (gitRepo *GitRepo) GitStatusAndCommit() error {
 
-	opts := &git.StatusOptions{
-		Flags: (git.StatusOptIncludeUntracked),
+	opts := &g.StatusOptions{
+		Flags: (g.StatusOptIncludeUntracked),
 	}
 	list, err := gitRepo.repo.StatusList(opts)
 
@@ -62,19 +101,19 @@ func (gitRepo *GitRepo) GitStatusAndCommit() error {
 		entry, _ := list.ByIndex(i)
 		fmt.Printf("%+v\nstatus=0x%x\n\n", entry, entry.Status)
 		// file is newly added
-		if entry.Status == git.StatusWtNew {
+		if entry.Status == g.StatusWtNew {
 			s := entry.IndexToWorkdir.NewFile.Path
 			gitRepo.addToIndex(s)
 
 		}
 		// file is modified
-		if entry.Status == git.StatusWtModified {
+		if entry.Status == g.StatusWtModified {
 			s := entry.IndexToWorkdir.NewFile.Path
 			gitRepo.addToIndex(s)
 
 		}
 		// fie us deleted
-		if entry.Status == git.StatusWtDeleted {
+		if entry.Status == g.StatusWtDeleted {
 			s := entry.IndexToWorkdir.NewFile.Path
 			fmt.Printf("File removed %s\n", s)
 			gitRepo.removeFromIndex(s)
@@ -115,7 +154,7 @@ func (gitRepo *GitRepo) removeFromIndex(path string) error {
 // Commit current index to the repo
 func (gitRepo *GitRepo) Commit(message string) error {
 
-	sig := &git.Signature{
+	sig := &g.Signature{
 		Name:  "config-saver",
 		Email: "config-saver@forgerock.com",
 	}
@@ -146,15 +185,22 @@ func checkErr(err error) {
 
 // From https://gist.github.com/danielfbm/ba4ae91efa96bb4771351bdbd2c8b06f
 
-func checkoutBranch(repo *git.Repository, branchName string) error {
-	checkoutOpts := &git.CheckoutOpts{
-		Strategy: git.CheckoutSafe | git.CheckoutRecreateMissing | git.CheckoutAllowConflicts | git.CheckoutUseTheirs,
+func checkoutBranch(repo *g.Repository, branchName string) error {
+	checkoutOpts := &g.CheckoutOpts{
+		Strategy: g.CheckoutSafe | g.CheckoutRecreateMissing | g.CheckoutAllowConflicts | g.CheckoutUseTheirs,
+		ProgressCallback: func(path string, completed, total uint) g.ErrorCode {
+			log.Printf("cloning %s completed %d of %d\n", path, completed, total)
+			return 0
+		},
 	}
 	//Getting the reference for the remote branch
 	// remoteBranch, err := repo.References.Lookup("refs/remotes/origin/" + branchName)
-	remoteBranch, err := repo.LookupBranch("origin/"+branchName, git.BranchRemote)
+	remoteBranch, err := repo.LookupBranch("origin/"+branchName, g.BranchRemote)
 	if err != nil {
 		log.Print("Failed to find remote branch: " + branchName)
+		// TODO: This fails if the remote branch does not exist (examp]e: origin/autosave)
+		// Instead of generating an error here we should attempt to create the remote branch
+		// git push --set-uptream-to=origin/autosave
 		return err
 	}
 	defer remoteBranch.Free()
@@ -167,7 +213,7 @@ func checkoutBranch(repo *git.Repository, branchName string) error {
 	}
 	defer commit.Free()
 
-	localBranch, err := repo.LookupBranch(branchName, git.BranchLocal)
+	localBranch, err := repo.LookupBranch(branchName, g.BranchLocal)
 	// No local branch, lets create one
 	if localBranch == nil || err != nil {
 		// Creating local branch

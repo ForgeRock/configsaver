@@ -56,7 +56,6 @@ type ConfigServer struct {
 
 // GetConfig returns the entire config for a given product. Returns to the caller as tar file
 func (s *ConfigServer) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
-	//func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.GetConfigReply, error) {
 
 	log.Printf("GetConfig product: %s commit: %s", in.ProductId, in.CommitId)
 	bytes, err := f.GetAllConfiguration(config.RootDirectory, config.ProductPath[in.ProductId])
@@ -84,6 +83,11 @@ func (s *ConfigServer) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequ
 			return &pb.UpdateConfigReply{Status: 1, ErrorMessage: err.Error()}, err
 		}
 	}
+	// Update git...
+	if err = s.GitRepo.GitStatusAndCommit(); err != nil {
+		fmt.Printf("error commiting changes to git %v", err)
+		return &pb.UpdateConfigReply{Status: 1, ErrorMessage: err.Error()}, err
+	}
 
 	return &pb.UpdateConfigReply{Status: 0, ErrorMessage: "ok"}, nil
 }
@@ -97,7 +101,7 @@ func main() {
 	futil := f.NewFileUtil(rootDir)
 
 	log.Println("Getting the git repo")
-	gitRepo, err := git.OpenGitRepo("https://stash.forgerock.org/scm/cloud/forgeops.git", rootDir, "master")
+	gitRepo, err := git.OpenGitRepo(rootDir, "autosave")
 
 	config = &ConfigServer{
 		RootDirectory: rootDir,
