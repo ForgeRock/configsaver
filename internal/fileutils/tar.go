@@ -86,15 +86,17 @@ func (f *FileUtil) ScanFiles() error {
 	// look for files no longer in the filesystem
 	for k, _ := range f.fileStatus {
 		if _, ok := currentPaths[k]; !ok {
-			fmt.Printf("%s deleted\n", k)
 			// remove from the map and add to the list of deleted files
 			delete(f.fileStatus, k)
-			f.DeletedFiles = append(f.DeletedFiles, k)
+			// The server wants the relative path, so strip the root directory
+			rpath := k[len(f.RootDir)+1:]
+			fmt.Printf("Add %s to delete list\n", rpath)
+			f.DeletedFiles = append(f.DeletedFiles, rpath)
 		}
 	}
 
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("error walking directory tree: %v", err)
 	}
 
 	return nil
@@ -144,10 +146,12 @@ func CreateTarBuffer(rootDir string, filePaths []string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Given a tar file in a memory buf, unpack it to the specified rootDir directory.
-func (f *FileUtil)UnpackTarBuffer(buf []byte) error {
+// Given a tar file in a memory buf, unpack it to the specified rootDir directory + optional relative path
+func (f *FileUtil) UnpackTarBuffer(buf []byte, rpath string) error {
 
-	log.Printf("Unpacking tar file to %s\n", f.RootDir)
+	targetDir := filepath.Join(f.RootDir, rpath)
+
+	log.Printf("Unpacking tar file to %s\n", targetDir)
 	reader := bytes.NewReader(buf)
 	var tarReader *tar.Reader
 
@@ -163,7 +167,7 @@ func (f *FileUtil)UnpackTarBuffer(buf []byte) error {
 		tarReader = tar.NewReader(reader)
 	}
 
-	if err := os.MkdirAll(f.RootDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("could not create directory '%s', got error '%v'", f.RootDir, err.Error())
 	}
 
@@ -176,7 +180,7 @@ func (f *FileUtil)UnpackTarBuffer(buf []byte) error {
 			return fmt.Errorf("could not read next tar header, got error '%v'", err.Error())
 		}
 
-		path := filepath.Join(f.RootDir, header.Name)
+		path := filepath.Join(targetDir, header.Name)
 		fmt.Println(path)
 
 		err = os.MkdirAll(filepath.Dir(path), 0755)
@@ -196,6 +200,21 @@ func (f *FileUtil)UnpackTarBuffer(buf []byte) error {
 		}
 	}
 
+	return nil
+}
+
+// DeleteFiles deletes a list of files from the filesystem. The prefix is a subpath of the root directory
+// for example if the root is /tmp/forgeops, the prefix is docker/am/product-configs/cdk, the file[*] path is a file under that directory.
+func (f *FileUtil) DeleteFiles(files []string, prefix string) error {
+	for _, file := range files {
+		path := filepath.Join(f.RootDir, prefix, file)
+		fmt.Printf("Deleting %s\n", path)
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Printf("Error deleting %s, %v\n", path, err)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -237,10 +256,11 @@ func addFileToTarWriter(rootDir, filePath string, tarWriter *tar.Writer) error {
 }
 
 // Function called for every file and directory we visit
-// Map newPaths are the new files in this iteration - we use this to determine if there are files in
-// map m that are not in the current iteration. These are files that have been deleted from the filesystem
-// Any new paths found are also added to the map m.
+// Map recentPass are the new files in this scan iteration - we use this to determine if there are files in
+// map f.FileStatus that are not in the current iteration. These are files that have been deleted from the filesystem
+// Any new paths found are also added to the map f.FileStatus.
 func (f *FileUtil) walkDirFunction(path string, d fs.DirEntry, recentPass map[string]time.Time) error {
+	// ignore .git/* and any path that is a directory
 	if !d.IsDir() && !strings.Contains(d.Name(), ".git") {
 		info, _ := d.Info()
 		t := info.ModTime()

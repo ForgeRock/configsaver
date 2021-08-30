@@ -71,7 +71,7 @@ func getConfigFromServer(c pb.ConfigSaverClient, futil *f.FileUtil) {
 		log.Fatalf("could not get configuration for %s from the server: %v", "am", err)
 	}
 	log.Printf("Status = %d Error message: %s", r.Status, r.ErrorMessage)
-	if err := futil.UnpackTarBuffer(r.GetConfigTar()); err != nil {
+	if err := futil.UnpackTarBuffer(r.GetConfigTar(), ""); err != nil {
 		log.Fatalf("could not unpack configuration: %v", err)
 	}
 }
@@ -95,10 +95,23 @@ func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration
 
 		// if there are new files, modified files, or deleted files, then let the server know
 		if newOrModifiedFiles || len(futil.DeletedFiles) > 0 {
-			// TODO
 			log.Printf("updating server, modified=%d  new=%d deleted=%d  tar_bytes=%d\n",
 				len(futil.ModifiedFiles), len(futil.NewFiles), len(futil.DeletedFiles), len(tarBytes))
-
+			// todo: what to do about defer in infinite loop?
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			//defer cancel()
+			r, err := c.UpdateConfig(ctx, &pb.UpdateConfigRequest{
+				CommitId:     "master",
+				ProductId:    "am",
+				ConfigTar:    tarBytes,
+				DeletedFiles: futil.DeletedFiles,
+			})
+			if err != nil {
+				log.Printf("error updating server %v", err)
+			} else {
+				log.Printf("response status %d  %s", r.Status, r.ErrorMessage)
+			}
+			cancel()
 		}
 
 		time.Sleep(scanDuration)

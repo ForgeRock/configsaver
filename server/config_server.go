@@ -68,12 +68,20 @@ func (s *server) GetConfig(ctx context.Context, in *pb.GetConfigRequest) (*pb.Ge
 func (s *server) UpdateConfig(ctx context.Context, in *pb.UpdateConfigRequest) (*pb.UpdateConfigReply, error) {
 	log.Printf("UpdateConfig product: %s commit: %s", in.ProductId, in.CommitId)
 
-	err := config.FileUtil.UnpackTarBuffer(in.ConfigTar)
-
+	// Unpack the tar file containing the changes
+	err := config.FileUtil.UnpackTarBuffer(in.ConfigTar, config.ProductPath[in.ProductId])
 	if err != nil {
 		log.Printf("could not unpack tar buffer: %v\n", err)
 		return &pb.UpdateConfigReply{Status: 1, ErrorMessage: err.Error()}, err
 	}
+	// new see if the client removed any files.
+	if len(in.DeletedFiles) > 0 {
+		err = config.FileUtil.DeleteFiles(in.DeletedFiles, config.ProductPath[in.ProductId])
+		if err != nil {
+			return &pb.UpdateConfigReply{Status: 1, ErrorMessage: err.Error()}, err
+		}
+	}
+
 	return &pb.UpdateConfigReply{Status: 0, ErrorMessage: "ok"}, nil
 }
 
@@ -81,12 +89,12 @@ var config *ConfigServerConfig
 
 func main() {
 
-	rootDir := "tmp"
+	rootDir := "tmp/forgeops"
 
 	futil := f.NewFileUtil(rootDir)
 
 	config = &ConfigServerConfig{
-		RootDirectory: "tmp/forgeops",
+		RootDirectory: rootDir,
 		ProductPath: map[string]string{
 			"am":  "docker/am/config-profiles/cdk",
 			"idm": "docker/idm/config-profiles/cdk",
@@ -100,10 +108,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to open git repo: %v", err)
 	}
-
-	// _ = git.GitStatusAndCommit()
-
-	// panic("quit")
 
 	lis, err := net.Listen("tcp", port)
 	if err != nil {

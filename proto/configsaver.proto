@@ -70,7 +70,7 @@ message UpdateConfigRequest {
   bytes config_tar = 3;
   // TOOD: Do we need this?
   // List of files that were deleted on the client config
-  repeated string removed_files = 4;
+  repeated string Deleted_files = 4;
 }
 
 
