@@ -1,8 +1,8 @@
 steps:
-- name: 'gcr.io/cloud-builder/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/config_server', '.', '-f' , 'server/Dockerfile']
-- name: 'gcr.io/cloud-builder/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/config_client;', '.', '-f' , 'client/Dockerfile']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/config_server', '.', '-f', 'server/Dockerfile']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/config_client', '.', '-f', 'client/Dockerfile']
 
 images:
 - 'gcr.io/$PROJECT_ID/config_server'
