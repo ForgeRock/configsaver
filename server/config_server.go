@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 
 	f "github.com/ForgeRock/configsaver/internal/fileutils"
 	git "github.com/ForgeRock/configsaver/internal/git"
@@ -51,7 +52,10 @@ type ConfigServer struct {
 var config *ConfigServer
 
 func main() {
-	rootDir := "tmp/forgeops" // todo: make this configurable
+	rootDir := "tmp/frconfig"
+	if len(os.Args) > 1 {
+		rootDir = os.Args[1]
+	}
 
 	// This will look for GIT_REPO and GIT_SSH_PATH environment variables.
 	gitRepo, err := git.OpenGitRepo(rootDir, "master")
