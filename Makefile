@@ -17,13 +17,16 @@ serve:
 	GIT_REPO="git@github.com:wstrange/forgeops.git" GIT_SSH_PATH=tmp/ssh go run server/config_server.go
 
 client:
-	go run client/config_client.go /tmp/cs
+	CONFIG_DIR=tmp/client go run client/config_client.go
 
 client_sync:
-	go run client/config_client.go /tmp/cs 5
+	CONFIG_DIR=tmp/client go run client/config_client.go 5
 
 docker:
 	docker build -t gcr.io/forgeops-public/config_client:dev  -f client/Dockerfile  .
 	docker build -t gcr.io/forgeops-public/config_server:dev  -f server/Dockerfile .
 	docker push gcr.io/forgeops-public/config_client:dev
 	docker push gcr.io/forgeops-public/config_server:dev
+
+cb:
+	gcloud --project forgeops-public builds submit
