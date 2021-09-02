@@ -31,33 +31,36 @@ import (
 	"google.golang.org/grpc"
 )
 
-const (
-	address = "localhost:50051"
-)
-
+// With no args we get the config from the server and exit.
+// with one arg (the time in seconds) we scan for changes and upload to the server
 func main() {
 
-	if len(os.Args) <= 1 || len(os.Args) > 3 {
-		log.Fatalf("Usage: %s configDirectory [scanSeconds]", os.Args[0])
+	if len(os.Args) > 2 {
+		log.Fatalf("Usage: %s [scanSeconds]", os.Args[0])
 	}
 
-	configDir := os.Args[1]
+	// where to save the config
+	configDir := getEnvOrDefault("CONFIG_DIR", "/tmp")
+	// which product we want to config for
+	configProduct := getEnvOrDefault("CONFIG_PRODUCT", "am")
+	// The config server address:port
+	server := getEnvOrDefault("CONFIG_SERVER", "localhost:50051")
+
+	log.Printf("config_client starting. product: %s,  configDir: %s\n", configProduct, configDir)
 
 	// todo: Move to NewFileUtil
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		err := os.Mkdir(configDir, os.ModePerm)
 		if err != nil {
 			log.Fatalf("Error creating config directory %s: %v", configDir, err)
-
 		}
 	}
 
 	futil := f.NewFileUtil(configDir)
 
-	log.Printf("Waiting for server connection..\n")
-
+	log.Printf("Waiting for server connection %s\n", server)
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.Dial(server, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("could not connect: %v", err)
 	}
@@ -65,26 +68,26 @@ func main() {
 	c := pb.NewConfigSaverClient(conn)
 
 	// If there is only one arg, read the config from the server and exit
-	if len(os.Args) == 2 {
-		getConfigFromServer(c, futil)
+	if len(os.Args) == 1 {
+		getConfigFromServer(c, futil, configProduct)
 		os.Exit(0)
 	}
 
 	// There is more than org, so we want to iterate looking for changes to send to the server.
-	scanSeconds, err := strconv.Atoi(os.Args[2])
+	scanSeconds, err := strconv.Atoi(os.Args[1])
 	if err != nil || scanSeconds < 1 || scanSeconds > 120 {
 		log.Fatalf("Invalid scanSeconds: %s. Must be between 1 and 120", os.Args[2])
 	}
 
 	scanDuration := time.Duration(scanSeconds) * time.Second
-	scanAndSaveToServer(c, futil, scanDuration)
+	scanAndSaveToServer(c, futil, scanDuration, configProduct)
 
 }
 
-func getConfigFromServer(c pb.ConfigSaverClient, futil *f.FileUtil) {
+func getConfigFromServer(c pb.ConfigSaverClient, futil *f.FileUtil, prodictId string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	r, err := c.GetConfig(ctx, &pb.GetConfigRequest{ProductId: "am", CommitId: "master"})
+	r, err := c.GetConfig(ctx, &pb.GetConfigRequest{ProductId: prodictId, CommitId: "master"})
 	if err != nil {
 		log.Fatalf("could not get configuration for %s from the server: %v", "am", err)
 	}
@@ -94,13 +97,23 @@ func getConfigFromServer(c pb.ConfigSaverClient, futil *f.FileUtil) {
 	}
 }
 
-func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration time.Duration) {
+// Loops looking for changes to the config directory and uploads to the server
+func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration time.Duration, productId string) {
+
+	// The first pass through scans the initial files. We do this so all the files don't
+	// get flagged as new
+	err := futil.ScanFiles()
+	if err != nil {
+		log.Printf("Error scanning files: %v", err)
+	}
+
+	// now loop looking for changes
 	for {
 		tarBytes := make([]byte, 0)
 
 		err := futil.ScanFiles()
 		if err != nil {
-			log.Printf("Error walking files: %v", err)
+			log.Printf("Error scanning files: %v", err)
 		}
 		newOrModifiedFiles := len(futil.ModifiedFiles) > 0 || len(futil.NewFiles) > 0
 		if newOrModifiedFiles {
@@ -120,7 +133,7 @@ func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration
 			//defer cancel()
 			r, err := c.UpdateConfig(ctx, &pb.UpdateConfigRequest{
 				CommitId:     "master",
-				ProductId:    "am",
+				ProductId:    productId,
 				ConfigTar:    tarBytes,
 				DeletedFiles: futil.DeletedFiles,
 			})
@@ -135,4 +148,12 @@ func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration
 		time.Sleep(scanDuration)
 	}
 
+}
+
+func getEnvOrDefault(envVar string, defaultVal string) string {
+	envVal := os.Getenv(envVar)
+	if envVal == "" {
+		return defaultVal
+	}
+	return envVal
 }
