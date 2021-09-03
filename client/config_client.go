@@ -29,7 +29,22 @@ import (
 	f "github.com/ForgeRock/configsaver/internal/fileutils"
 	pb "github.com/ForgeRock/configsaver/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
+
+type clientCtx struct {
+	server          string
+	conn            *grpc.ClientConn
+	configDirectory string
+	fileUtil        *f.FileUtil
+	grpc            pb.ConfigSaverClient
+}
+
+var kacp = keepalive.ClientParameters{
+	Time:                10 * time.Second, // send pings every 10 seconds if there is no activity
+	Timeout:             time.Second,      // wait 1 second for ping ack before considering the connection dead
+	PermitWithoutStream: true,             // send pings even without active streams
+}
 
 // With no args we get the config from the server and exit.
 // with one arg (the time in seconds) we scan for changes and upload to the server
@@ -56,20 +71,26 @@ func main() {
 		}
 	}
 
-	futil := f.NewFileUtil(configDir)
-
 	log.Printf("Waiting for server connection %s\n", server)
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(server, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.Dial(server, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithKeepaliveParams(kacp))
 	if err != nil {
 		log.Fatalf("could not connect: %v", err)
 	}
 	defer conn.Close()
 	c := pb.NewConfigSaverClient(conn)
 
+	client := clientCtx{
+		server:          server,
+		configDirectory: configDir,
+		fileUtil:        f.NewFileUtil(configDir),
+		conn:            conn,
+		grpc:            c,
+	}
+
 	// If there is only one arg, read the config from the server and exit
 	if len(os.Args) == 1 {
-		getConfigFromServer(c, futil, configProduct)
+		client.getConfigFromServer(configProduct)
 		os.Exit(0)
 	}
 
@@ -80,29 +101,29 @@ func main() {
 	}
 
 	scanDuration := time.Duration(scanSeconds) * time.Second
-	scanAndSaveToServer(c, futil, scanDuration, configProduct)
+	client.scanAndSaveToServer(scanDuration, configProduct)
 
 }
 
-func getConfigFromServer(c pb.ConfigSaverClient, futil *f.FileUtil, prodictId string) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func (client *clientCtx) getConfigFromServer(productId string) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 	defer cancel()
-	r, err := c.GetConfig(ctx, &pb.GetConfigRequest{ProductId: prodictId, CommitId: "master"})
+	r, err := client.grpc.GetConfig(ctx, &pb.GetConfigRequest{ProductId: productId, CommitId: "master"})
 	if err != nil {
 		log.Fatalf("could not get configuration for %s from the server: %v", "am", err)
 	}
 	log.Printf("Status = %d Error message: %s", r.Status, r.ErrorMessage)
-	if err := futil.UnpackTarBuffer(r.GetConfigTar(), ""); err != nil {
+	if err := client.fileUtil.UnpackTarBuffer(r.GetConfigTar(), ""); err != nil {
 		log.Fatalf("could not unpack configuration: %v", err)
 	}
 }
 
 // Loops looking for changes to the config directory and uploads to the server
-func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration time.Duration, productId string) {
+func (client *clientCtx) scanAndSaveToServer(scanDuration time.Duration, productId string) {
 
 	// The first pass through scans the initial files. We do this so all the files don't
 	// get flagged as new
-	err := futil.ScanFiles()
+	err := client.fileUtil.ScanFiles()
 	if err != nil {
 		log.Printf("Error scanning files: %v", err)
 	}
@@ -111,38 +132,44 @@ func scanAndSaveToServer(c pb.ConfigSaverClient, futil *f.FileUtil, scanDuration
 	for {
 		tarBytes := make([]byte, 0)
 
-		err := futil.ScanFiles()
+		err := client.fileUtil.ScanFiles()
 		if err != nil {
 			log.Printf("Error scanning files: %v", err)
 		}
-		newOrModifiedFiles := len(futil.ModifiedFiles) > 0 || len(futil.NewFiles) > 0
+		newOrModifiedFiles := len(client.fileUtil.ModifiedFiles) > 0 || len(client.fileUtil.NewFiles) > 0
 		if newOrModifiedFiles {
-			tarBytes, err = futil.TarUpModifiedFiles()
+			tarBytes, err = client.fileUtil.TarUpModifiedFiles()
 			if err != nil {
 				log.Printf("Error creating tar: %v", err)
 			}
-			log.Printf("Number files modified = %d  new = %d tar file size=%d\n", len(futil.ModifiedFiles), len(futil.NewFiles), len(tarBytes))
+			log.Printf("Number files modified = %d  new = %d tar file size=%d\n", len(client.fileUtil.ModifiedFiles), len(client.fileUtil.NewFiles), len(tarBytes))
 		}
 
 		// if there are new files, modified files, or deleted files, then let the server know
-		if newOrModifiedFiles || len(futil.DeletedFiles) > 0 {
-			log.Printf("updating server, modified=%d  new=%d deleted=%d  tar_bytes=%d\n",
-				len(futil.ModifiedFiles), len(futil.NewFiles), len(futil.DeletedFiles), len(tarBytes))
-			// todo: what to do about defer in infinite loop?
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			//defer cancel()
-			r, err := c.UpdateConfig(ctx, &pb.UpdateConfigRequest{
-				CommitId:     "master",
-				ProductId:    productId,
-				ConfigTar:    tarBytes,
-				DeletedFiles: futil.DeletedFiles,
-			})
-			if err != nil {
-				log.Printf("error updating server %v", err)
-			} else {
-				log.Printf("response status %d  %s", r.Status, r.ErrorMessage)
+		if newOrModifiedFiles || len(client.fileUtil.DeletedFiles) > 0 {
+			for {
+
+				log.Printf("updating server, modified=%d  new=%d deleted=%d  tar_bytes=%d\n",
+					len(client.fileUtil.ModifiedFiles), len(client.fileUtil.NewFiles), len(client.fileUtil.DeletedFiles), len(tarBytes))
+				// todo: what to do about defer in infinite loop?
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+				r, err := client.grpc.UpdateConfig(ctx, &pb.UpdateConfigRequest{
+					CommitId:     "master",
+					ProductId:    productId,
+					ConfigTar:    tarBytes,
+					DeletedFiles: client.fileUtil.DeletedFiles,
+				})
+				cancel()
+
+				if err != nil {
+					log.Printf("error updating server %v. Ill try again", err)
+				} else {
+					log.Printf("response status %d  %s", r.Status, r.ErrorMessage)
+					break
+				}
+				time.Sleep(time.Second * 10)
+
 			}
-			cancel()
 		}
 
 		time.Sleep(scanDuration)
