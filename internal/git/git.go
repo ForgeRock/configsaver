@@ -148,12 +148,14 @@ func (gitRepo *GitRepo) GitStatusAndCommit() error {
 }
 
 // See https://github.com/libgit2/libgit2/blob/091165c53b2bcd5d41fb71d43ed5a23a3d96bf5d/tests/object/commit/commitstagedfile.c#L21-L134
-// add a file to the index. Equivalent to git add file
+// add a path to the index. Equivalent to git add path
 func (gitRepo *GitRepo) addToIndex(path string) error {
+
 	log.Printf("Adding %s to index\n", path)
 	index, err := gitRepo.repo.Index()
 	checkErr(err)
-	err = index.AddByPath(path)
+	// add all will handle the case where path is a directory
+	err = index.AddAll([]string{path}, g.IndexAddDefault, nil)
 	checkErr(err)
 	err = index.Write()
 	checkErr(err)
