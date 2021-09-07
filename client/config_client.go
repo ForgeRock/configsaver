@@ -55,11 +55,11 @@ func main() {
 	}
 
 	// where to save the config
-	configDir := getEnvOrDefault("CONFIG_DIR", "/tmp")
+	configDir := f.GetEnvOrDefault("CONFIG_DIR", "/tmp")
 	// which product we want to config for
-	configProduct := getEnvOrDefault("CONFIG_PRODUCT", "am")
+	configProduct := f.GetEnvOrDefault("CONFIG_PRODUCT", "am")
 	// The config server address:port
-	server := getEnvOrDefault("CONFIG_SERVER", "localhost:50051")
+	server := f.GetEnvOrDefault("CONFIG_SERVER", "localhost:50051")
 
 	log.Printf("config_client starting. product: %s,  configDir: %s\n", configProduct, configDir)
 
@@ -175,12 +175,4 @@ func (client *clientCtx) scanAndSaveToServer(scanDuration time.Duration, product
 		time.Sleep(scanDuration)
 	}
 
-}
-
-func getEnvOrDefault(envVar string, defaultVal string) string {
-	envVal := os.Getenv(envVar)
-	if envVal == "" {
-		return defaultVal
-	}
-	return envVal
 }

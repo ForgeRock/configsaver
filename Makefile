@@ -14,7 +14,7 @@ compile: configsaver.pb.go
 
 
 serve:
-	GIT_REPO="git@github.com:wstrange/forgeops.git" GIT_SSH_PATH=tmp/ssh go run server/config_server.go
+	CONFIG_DIR=tmp/forgeops GIT_REPO="git@github.com:wstrange/forgeops.git" GIT_SSH_PATH=tmp/ssh go run server/config_server.go
 
 client:
 	CONFIG_DIR=tmp/client go run client/config_client.go
